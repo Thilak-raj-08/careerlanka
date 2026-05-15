@@ -1,0 +1,407 @@
+// CareerLanka Database Schema
+// Sri Lanka's Internship & Career Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum Role {
+  STUDENT
+  COMPANY
+  ADMIN
+}
+
+enum CompanyStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum JobType {
+  INTERNSHIP
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  FREELANCE
+}
+
+enum LocationType {
+  REMOTE
+  ONSITE
+  HYBRID
+}
+
+enum JobStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  CLOSED
+  EXPIRED
+}
+
+enum ApplicationStatus {
+  PENDING
+  REVIEWED
+  SHORTLISTED
+  INTERVIEWING
+  REJECTED
+  HIRED
+  WITHDRAWN
+}
+
+enum NotificationType {
+  APPLICATION_RECEIVED
+  APPLICATION_STATUS_CHANGED
+  NEW_JOB_MATCH
+  COMPANY_APPROVED
+  JOB_EXPIRED
+  GENERAL
+}
+
+// ============================================
+// USER (Base - for all roles)
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  password      String?   // null for OAuth users
+  name          String
+  image         String?
+  role          Role      @default(STUDENT)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations - one user has ONE profile (based on role)
+  studentProfile  StudentProfile?
+  companyProfile  CompanyProfile?
+
+  // Activities
+  applications     Application[]
+  savedJobs        SavedJob[]
+  notifications    Notification[]
+
+  // NextAuth
+  accounts Account[]
+  sessions Session[]
+
+  @@index([email])
+  @@index([role])
+}
+
+// ============================================
+// STUDENT PROFILE
+// ============================================
+
+model StudentProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Personal info
+  phone        String?
+  dateOfBirth  DateTime?
+  location     String?  // e.g., "Jaffna, Sri Lanka"
+  bio          String?  @db.Text
+  profilePhoto String?
+
+  // Professional
+  headline     String?  // e.g., "Final year Software Engineering student"
+  resumeUrl    String?
+  experience   Int?     // years (0 for freshers)
+
+  // Arrays as JSON (Postgres native)
+  skills       String[] // ["React", "Node.js", "PHP"]
+  languages    String[] // ["English", "Tamil", "Sinhala"]
+
+  // Education (one-to-many)
+  education    Education[]
+
+  // Work experience (one-to-many)
+  workHistory  WorkExperience[]
+
+  // Social links
+  linkedinUrl  String?
+  githubUrl    String?
+  portfolioUrl String?
+
+  // Preferences
+  openToWork         Boolean  @default(true)
+  preferredJobTypes  JobType[]
+  preferredLocations String[]
+  expectedSalaryMin  Int?
+  expectedSalaryMax  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Education {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  degree      String   // "BSc (Hons) Software Engineering"
+  institution String   // "ICBT Campus Jaffna"
+  fieldOfStudy String? // "Software Engineering"
+  grade       String?  // "Second Class, Division One" or "Distinction"
+  startDate   DateTime
+  endDate     DateTime?
+  isCurrent   Boolean  @default(false)
+  description String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WorkExperience {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  jobTitle    String
+  company     String
+  location    String?
+  startDate   DateTime
+  endDate     DateTime?
+  isCurrent   Boolean  @default(false)
+  description String?  @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================
+// COMPANY PROFILE
+// ============================================
+
+model CompanyProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Company info
+  companyName String
+  logo        String?
+  coverImage  String?
+  tagline     String?
+  description String?  @db.Text
+
+  // Details
+  industry    String?  // e.g., "Information Technology"
+  size        String?  // "1-10", "11-50", "51-200", "201-500", "500+"
+  foundedYear Int?
+  website     String?
+
+  // Contact
+  email       String?
+  phone       String?
+  location    String?  // HQ location
+  address     String?  @db.Text
+
+  // Social
+  linkedinUrl  String?
+  facebookUrl  String?
+  twitterUrl   String?
+
+  // Verification
+  status       CompanyStatus @default(PENDING)
+  verifiedAt   DateTime?
+  rejectionReason String? @db.Text
+
+  // Stats
+  totalJobsPosted Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Jobs
+  jobs Job[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================
+// JOB
+// ============================================
+
+model Job {
+  id        String   @id @default(cuid())
+  companyId String
+  company   CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Basic info
+  title        String
+  slug         String   @unique
+  description  String   @db.Text
+  requirements String   @db.Text
+  benefits     String?  @db.Text
+
+  // Categorization
+  type         JobType
+  locationType LocationType
+  location     String?  // "Colombo, Sri Lanka" or null for remote
+  category     String?  // "Software Development", "Marketing", etc.
+
+  // Compensation
+  salaryMin    Int?
+  salaryMax    Int?
+  salaryCurrency String @default("LKR")
+  salaryPeriod   String @default("month") // "month", "year", "hour"
+  showSalary     Boolean @default(true)
+
+  // Requirements
+  skills           String[]
+  experienceMin    Int      @default(0) // years
+  educationLevel   String?  // "Bachelor's", "HND", "Diploma", etc.
+
+  // Status
+  status          JobStatus @default(ACTIVE)
+  isUrgent        Boolean   @default(false)
+  isFeatured      Boolean   @default(false)
+
+  // Dates
+  postedAt        DateTime  @default(now())
+  closesAt        DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  // Stats (denormalized for performance)
+  viewCount        Int @default(0)
+  applicationCount Int @default(0)
+  savedCount       Int @default(0)
+
+  // Relations
+  applications Application[]
+  savedBy      SavedJob[]
+
+  @@index([slug])
+  @@index([companyId])
+  @@index([status])
+  @@index([type])
+  @@index([postedAt])
+}
+
+// ============================================
+// APPLICATION
+// ============================================
+
+model Application {
+  id        String @id @default(cuid())
+  jobId     String
+  job       Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  studentId String
+  student   User   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  // Application data
+  coverLetter String? @db.Text
+  resumeUrl   String  // snapshot - student resume at the time of application
+
+  // Status tracking
+  status     ApplicationStatus @default(PENDING)
+  statusNote String?           @db.Text  // company's internal note
+
+  // Dates
+  appliedAt  DateTime  @default(now())
+  reviewedAt DateTime?
+  updatedAt  DateTime  @updatedAt
+
+  // Prevent duplicate applications
+  @@unique([jobId, studentId])
+  @@index([jobId])
+  @@index([studentId])
+  @@index([status])
+}
+
+// ============================================
+// SAVED JOB (bookmarks)
+// ============================================
+
+model SavedJob {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  savedAt   DateTime @default(now())
+
+  @@unique([userId, jobId])
+  @@index([userId])
+  @@index([jobId])
+}
+
+// ============================================
+// NOTIFICATION
+// ============================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  link      String?          // e.g., "/jobs/abc123"
+
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ============================================
+// NEXTAUTH (required for OAuth)
+// ============================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
